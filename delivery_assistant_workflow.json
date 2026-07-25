@@ -1,0 +1,126 @@
+{
+  "Comment": "Assistente de Delivery inteligente para Reunião de Amigos orquestrado com AWS Step Functions e Amazon Bedrock",
+  "StartAt": "ValidarEntrada",
+  "States": {
+    "ValidarEntrada": {
+      "Type": "Pass",
+      "Parameters": {
+        "contexto.$": "$.contexto",
+        "quantidade_pessoas.$": "$.quantidade_pessoas",
+        "orcamento_maximo.$": "$.orcamento_maximo",
+        "preferencias_bebidas.$": "$.preferencias_bebidas",
+        "restricoes_alimentares.$": "$.restricoes_alimentares"
+      },
+      "Next": "VerificarContexto"
+    },
+    "VerificarContexto": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.contexto",
+          "StringEquals": "reuniao_amigos",
+          "Next": "GerarSugestaoReuniaoAmigos"
+        }
+      ],
+      "Default": "GerarSugestaoGenerica"
+    },
+    "GerarSugestaoReuniaoAmigos": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::bedrock:invokeModel",
+      "Parameters": {
+        "ModelId": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+        "Body": {
+          "anthropic_version": "bedrock-2023-05-31",
+          "max_tokens": 1000,
+          "temperature": 0.7,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text.$": "States.Format('Você é um Assistente especialista em Delivery para Reunião de Amigos. Sugira um combo perfeito de petiscos, porções compartilháveis, pizzas ou salgadinhos e bebidas para {} pessoas com orçamento total de R$ {}. Leve em consideração as seguintes preferências de bebida: {} e restrições alimentares: {}. Além disso, forneça uma divisão estimada da conta por pessoa.', $.quantidade_pessoas, $.orcamento_maximo, $.preferencias_bebidas, $.restricoes_alimentares)"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "ResultPath": "$.resultado_bedrock",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Bedrock.ClientException",
+            "Bedrock.ThrottlingException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "TratarErro"
+        }
+      ],
+      "Next": "ProcessarCalculoEDivisao"
+    },
+    "GerarSugestaoGenerica": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::bedrock:invokeModel",
+      "Parameters": {
+        "ModelId": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+        "Body": {
+          "anthropic_version": "bedrock-2023-05-31",
+          "max_tokens": 800,
+          "temperature": 0.7,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text.$": "States.Format('Sugira opções de delivery variadas para {} pessoas no valor aproximado de R$ {}.', $.quantidade_pessoas, $.orcamento_maximo)"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "ResultPath": "$.resultado_bedrock",
+      "Next": "ProcessarCalculoEDivisao"
+    },
+    "ProcessarCalculoEDivisao": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "SUCESSO",
+        "contexto.$": "$.contexto",
+        "quantidade_pessoas.$": "$.quantidade_pessoas",
+        "orcamento_maximo.$": "$.orcamento_maximo",
+        "sugestao_ia.$": "$.resultado_bedrock.Body.content[0].text",
+        "tempo_estimado_entrega": "35-50 minutos",
+        "cupom_desconto": "AMIGOS10"
+      },
+      "Next": "FormatadorFinalResposta"
+    },
+    "FormatadorFinalResposta": {
+      "Type": "Pass",
+      "Result": {
+        "mensagem": "Sugestão de Delivery para Reunião de Amigos gerada com sucesso!",
+        "plano_de_pedido.$": "$"
+      },
+      "End": true
+    },
+    "TratarErro": {
+      "Type": "Pass",
+      "Result": {
+        "status": "ERRO",
+        "mensagem": "Não foi possível conectar ao Amazon Bedrock para gerar a sugestão. Tente novamente mais tarde."
+      },
+      "End": true
+    }
+  }
+}
